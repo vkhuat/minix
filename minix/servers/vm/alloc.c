@@ -368,6 +368,7 @@ void memstats(int *nodes, int *pages, int *largest)
 
 static int findbit(int low, int startscan, int pages, int memflags, int *len)
 {
+	printf("enter findbit\n");
 	int run_length = 0, i;
 	int freerange_start = startscan;
 
@@ -391,6 +392,7 @@ static int findbit(int low, int startscan, int pages, int memflags, int *len)
 		if(run_length == pages) {
 			/* good block found! */
 			*len = run_length;
+			printf("allocated memory is %d\n", freerange_start);
 			return freerange_start;
 		}
 	}
