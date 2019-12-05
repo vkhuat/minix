@@ -71,6 +71,13 @@ static struct reserved_pages {
 	u32_t magic;
 } reservedqueues[MAXRESERVEDQUEUES], *first_reserved_inuse = NULL;
 
+struct hole {
+    int start;
+    int size;
+    struct hole *next;
+	struct hole *tail;
+};
+
 int missing_spares = 0;
 
 static void sanitycheck_queues(void)
@@ -366,9 +373,65 @@ void memstats(int *nodes, int *pages, int *largest)
 	}
 }
 
+void find_all_holes(int low, int startscan, int pages, int memflags, int *len, struct hole *head, struct hole *tail) {
+    int run_length = 0, i;
+    int freerange_start = startscan;
+
+    struct hole *curr_hole = head;
+    
+    for(i = startscan; i >= low; i--) {
+        if(!page_isfree(i)) {
+            // have to also check for case when i is low (or 1 less than low?).
+            if (run_length != 0) {
+                struct hole *h = (struct hole*) malloc(sizeof(struct hole));
+                h->start = freerange_start;
+                h->size = run_length;
+
+				// Add h to list of memory holes.
+                curr_hole->next = h;
+				h->prev = curr_hole;
+                curr_hole = h;
+            }
+
+            int pi;
+            int chunk = i/BITCHUNK_BITS, moved = 0;
+            run_length = 0;
+            pi = i;
+            while(chunk > 0 &&
+                  !MAP_CHUNK(free_pages_bitmap, chunk*BITCHUNK_BITS)) {
+                chunk--;
+                moved = 1;
+            }
+            if(moved) { i = chunk * BITCHUNK_BITS + BITCHUNK_BITS; } 
+            continue;
+        }
+        if(!run_length) { freerange_start = i; run_length = 1; }
+        else { freerange_start--; run_length++; }
+        // assert(run_length <= pages);
+        // if(run_length == pages) {//find the first consercutive pages that satisfy the request from a lowest pages in the first contigious chunks and return the starting position
+        //     /* good block found! */
+        //     *len = run_length;
+        //     return freerange_start;
+        // }
+    }
+}
+
+void print_all_holes(struct *hole head) {
+	struct *hole curr_hole = head;
+	printf("Available memory holes:\n");
+	while (curr_hole) {
+		printf("%d %d\n", curr_hole->start, curr_hole->size);
+	}
+}
+
 static int findbit(int low, int startscan, int pages, int memflags, int *len)
 {
 	printf("enter findbit\n");
+	struct hole *head = (struct hole*) malloc(sizeof(struct hole));
+	struct hole *tail = (struct hole*) malloc(sizeof(struct hole));
+	find_all_holes(int low, int startscan, int pages, int memflags, int *len, head, tail)
+	print_all_holes(head);
+
 	int run_length = 0, i;
 	int freerange_start = startscan;
 
@@ -392,7 +455,6 @@ static int findbit(int low, int startscan, int pages, int memflags, int *len)
 		if(run_length == pages) {
 			/* good block found! */
 			*len = run_length;
-			printf("allocated memory is %d\n", freerange_start);
 			return freerange_start;
 		}
 	}
