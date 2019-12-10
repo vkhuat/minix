@@ -21,6 +21,8 @@
 #include <errno.h>
 #include <assert.h>
 #include <memory.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #include "vm.h"
 #include "proto.h"
@@ -75,7 +77,7 @@ struct hole {
     int start;
     int size;
     struct hole *next;
-	struct hole *tail;
+	struct hole *prev;
 };
 
 int missing_spares = 0;
@@ -416,8 +418,8 @@ void find_all_holes(int low, int startscan, int pages, int memflags, int *len, s
     }
 }
 
-void print_all_holes(struct *hole head) {
-	struct *hole curr_hole = head;
+void print_all_holes(struct hole *head) {
+	struct hole *curr_hole = head;
 	printf("Available memory holes:\n");
 	while (curr_hole) {
 		printf("%d %d\n", curr_hole->start, curr_hole->size);
