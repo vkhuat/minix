@@ -375,7 +375,7 @@ void memstats(int *nodes, int *pages, int *largest)
 	}
 }
 
-void find_all_holes(int low, int startscan, int pages, int memflags, int *len, struct hole *head, struct hole *tail) {
+static void find_all_holes(int low, int startscan, int pages, int memflags, int *len, struct hole *head, struct hole *tail) {
     int run_length = 0, i;
     int freerange_start = startscan;
 
@@ -431,7 +431,7 @@ static int findbit(int low, int startscan, int pages, int memflags, int *len)
 	printf("enter findbit\n");
 	struct hole *head = (struct hole*) malloc(sizeof(struct hole));
 	struct hole *tail = (struct hole*) malloc(sizeof(struct hole));
-	find_all_holes(int low, int startscan, int pages, int memflags, int *len, head, tail)
+	find_all_holes(low, startscan, pages, memflags, len, head, tail);
 	print_all_holes(head);
 
 	int run_length = 0, i;
