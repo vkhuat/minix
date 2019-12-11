@@ -21,6 +21,10 @@
 #include <errno.h>
 #include <assert.h>
 #include <memory.h>
+#include <stdlib.h>
+
+// #include <linux/module.h>  /* Needed by all modules */
+// #include <linux/kernel.h>  /* Needed for KERN_ALERT */
 
 #include "vm.h"
 #include "proto.h"
@@ -70,6 +74,19 @@ static struct reserved_pages {
 	} slots[MAXRESERVEDPAGES];
 	u32_t magic;
 } reservedqueues[MAXRESERVEDQUEUES], *first_reserved_inuse = NULL;
+
+struct hole {
+    int start;
+    int size;
+    struct hole *next;
+	struct hole *prev;
+};
+
+struct linked_list {
+	struct hole *head;
+	struct hole *tail;
+	int length;
+};
 
 int missing_spares = 0;
 
@@ -366,33 +383,105 @@ void memstats(int *nodes, int *pages, int *largest)
 	}
 }
 
-static int findbit(int low, int startscan, int pages, int memflags, int *len)
-{
-	int run_length = 0, i;
-	int freerange_start = startscan;
+static void find_all_holes(int low, int startscan, int pages, int memflags, int *len, struct linked_list *hole_list) {
+    int run_length = 0, i;
+    int freerange_start = startscan;
 
-	for(i = startscan; i >= low; i--) {
-		if(!page_isfree(i)) {
-			int pi;
-			int chunk = i/BITCHUNK_BITS, moved = 0;
-			run_length = 0;
-			pi = i;
-			while(chunk > 0 &&
-			   !MAP_CHUNK(free_pages_bitmap, chunk*BITCHUNK_BITS)) {
-				chunk--;
-				moved = 1;
+    struct hole *curr_hole = hole_list->head;
+    
+    for(i = startscan; i >= low; i--) {
+        if(!page_isfree(i)) {
+            // have to also check for case when i is low (or 1 less than low?).
+            if (run_length != 0) {
+                struct hole *h = (struct hole*) malloc(sizeof(struct hole));
+                h->start = freerange_start;
+                h->size = run_length;
+
+				// Add h to list of memory holes.
+				if (!head) {	// list is empty
+					head = h;
+				} else {		// list is not empty
+					curr_hole->next = h;
+					curr_hole = h;
+					// not updating tail/prev at the moment because they may not be needed.
+				}
+            }
+
+            int pi;
+            int chunk = i/BITCHUNK_BITS, moved = 0;
+            run_length = 0;
+            pi = i;
+            while(chunk > 0 &&
+                  !MAP_CHUNK(free_pages_bitmap, chunk*BITCHUNK_BITS)) {
+                chunk--;
+                moved = 1;
+            }
+            if(moved) { i = chunk * BITCHUNK_BITS + BITCHUNK_BITS; } 
+            continue;
+        }
+        if(!run_length) { freerange_start = i; run_length = 1; }
+        else { freerange_start--; run_length++; }
+	}
+}
+
+void print_holes(struct hole *head) {
+	struct hole *curr_hole = head;
+	printf("Available memory holes:\n");
+	while (curr_hole) {
+		printf("%d %d\n", curr_hole->start, curr_hole->size);
+		curr_hole = curr_hole->next;
+	}
+}
+
+static int findbit(int selection, int low, int startscan, int pages, int memflags, int *len)
+{
+	struct linked_list *hole_list = (struct linked_list*) malloc(sizeof(struct linked_list));
+	find_all_holes(low, startscan, pages, memflags, len, hole_list);
+
+	struct node *curr_hole;
+	if (selection == FIRST_FIT || selection == NEXT_FIT) {	// the param startscan should already be updated to reflect if this is first fit or next fit
+		for (curr_hole = hole_list->head; curr_hole; curr_hole = curr_hole->next) {
+			if (curr_hole->size >= pages) return curr_hole->start;
+		}
+	} else if (selection == BEST_FIT) {
+		int best_fit_addr = -1;
+		int best_fit_size = INT_MAX;
+		for (curr_hole = hole_list->head; curr_hole; curr_hole = curr_hole->next) {
+			if (curr_hole->size >= pages && curr_hole->size < best_fit_size) {
+				best_fit_addr = curr_hole->start;
+				best_fit_size = curr_hole->size;
 			}
-			if(moved) { i = chunk * BITCHUNK_BITS + BITCHUNK_BITS; }
-			continue;
 		}
-		if(!run_length) { freerange_start = i; run_length = 1; }
-		else { freerange_start--; run_length++; }
-		assert(run_length <= pages);
-		if(run_length == pages) {
-			/* good block found! */
-			*len = run_length;
-			return freerange_start;
+
+		if (best_fit_addr != -1) return best_fit_addr;
+	} else if (selection == WORST_FIT) {
+		int worst_fit_addr = -1;
+		int worst_fit_size = INT_MIN;
+		for (curr_hole = hole_list->head; curr_hole; curr_hole = curr_hole->next) {
+			if (curr_hole->size >= pages && curr_hole->size > worst_fit_size) {
+				worst_fit_addr = curr_hole->start;
+				worst_fit_size = curr_hole->size;
+			}
 		}
+
+		if (worst_fit_addr != -1) return worst_fit_addr;
+	} else {	// random fit
+		struct linked_list fit_holes = (struct linked_list*) malloc(sizeof(struct linked_list));
+		for (curr_hole = hole_list->head; curr_hole; curr_hole = curr_hole->next) {
+			if (curr_hole->size >= pages) {
+				insert_to_list(fit_holes, start, size);
+			}
+		}
+
+		int random_val = rand() % fit_holes->length;	// pick a random hole from all the fit holes
+
+		int i;
+		curr_hole = fit_holes->head;
+		// traverse to the selected node
+		for (i = 0; i < random_val; i++) {
+			curr_hole = curr_hole->next;
+		}
+		if (curr_hole) return curr_hole->start;
 	}
 
 	return NO_MEM;
