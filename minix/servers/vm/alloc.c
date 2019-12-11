@@ -80,6 +80,12 @@ struct hole {
 	struct hole *prev;
 };
 
+struct linked_list{
+	struct hole *head;
+	struct hole *tail;
+	int length;
+};
+
 int missing_spares = 0;
 
 static void sanitycheck_queues(void)
@@ -375,11 +381,11 @@ void memstats(int *nodes, int *pages, int *largest)
 	}
 }
 
-static void find_all_holes(int low, int startscan, int pages, int memflags, int *len, struct hole *head, struct hole *tail) {
+static void find_all_holes(int low, int startscan, int pages, int memflags, int *len, struct linked_list hole_list) {
     int run_length = 0, i;
     int freerange_start = startscan;
 
-    struct hole *curr_hole = head;
+    struct hole *curr_hole = hole_list->head;
     
     for(i = startscan; i >= low; i--) {
         if(!page_isfree(i)) {
@@ -393,6 +399,7 @@ static void find_all_holes(int low, int startscan, int pages, int memflags, int 
                 curr_hole->next = h;
 				h->prev = curr_hole;
                 curr_hole = h;
+				hole_list->length++;
             }
 
             int pi;
@@ -428,11 +435,12 @@ void print_all_holes(struct hole *head) {
 
 static int findbit(int low, int startscan, int pages, int memflags, int *len)
 {
-	printf("enter findbit\n");
-	struct hole *head = (struct hole*) malloc(sizeof(struct hole));
-	struct hole *tail = (struct hole*) malloc(sizeof(struct hole));
-	find_all_holes(low, startscan, pages, memflags, len, head, tail);
-	print_all_holes(head);
+	printf("start findbit\n");
+	struct linked_list *hole_list = (struct linked_list*) malloc(sizeof(struct linked_list));
+	hole_list->head = (struct hole*) malloc(sizeof(struct hole));
+	hole_list->tail = (struct hole*) malloc(sizeof(struct hole));
+	find_all_holes(low, startscan, pages, memflags, len, hole_list);
+	print_all_holes(hole_list);
 
 	int run_length = 0, i;
 	int freerange_start = startscan;
@@ -462,6 +470,41 @@ static int findbit(int low, int startscan, int pages, int memflags, int *len)
 	}
 
 	return NO_MEM;
+
+	struct hole *curr_hole;
+
+	if (selection == FIRST_FIT) {
+		for (curr_hole = hole_list->head; curr_hole; curr_hole = curr_hole->next) {
+			if (curr_hole->size >= pages) return curr_hole->start;
+		}
+	} else if (selection == NEXT_FIT) {
+
+	} else if (selection == BEST_FIT) {
+		struct hole *best_fit_hole;
+		int best_fit_size = MAX_INT;
+		
+		for (curr_hole = hole_list->head; curr_hole; curr_hole = curr_hole->next) {
+			if (curr_hole->size >= pages && curr_hole->size < best_fit_size) {
+				best_fit_size = curr_hole->size;
+				best_fit_hole = curr_hole;
+			}
+		}
+
+		if (best_fit_hole) return best_fit_hole->start;
+	} else if (selection == WORST_FIT) {
+		struct hole *worst_fit_hole;
+		int worst_fit_size = MIN_INT;
+
+		for (curr_hole = hole_list->head; curr_hole; curr_hole = curr_hole->next) {
+			if (curr_hole->size >= pages && curr_hole->size > worst_fit_size) {
+				worst_fit_size = curr_hole->size;
+				worst_fit_hole = curr_hole;
+			}
+		}
+		if (worst_fit_hole) return worst_fit_hole->start;
+	} else {	// RANDOM_FIT
+		
+	}
 }
 
 /*===========================================================================*
